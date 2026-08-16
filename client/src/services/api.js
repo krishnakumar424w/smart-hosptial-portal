@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const API = axios.create({
-  baseURL: '/api',
+  baseURL: 'https://smart-hosptial-portal-m3tr.vercel.app/api',
 });
 
 API.interceptors.request.use((config) => {
