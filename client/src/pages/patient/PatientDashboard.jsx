@@ -106,12 +106,14 @@ const PatientDashboard = () => {
     fetchPatientData();
 
     // Check scheduled medicine reminders against patient's custom times every 20 seconds
-    const reminderInterval = setInterval(() => {
-      checkAndTriggerScheduledReminders({
-        schedule: getCategorizedMedicines(),
-        onClickCallback: (slot) => handleScheduleFocus(slot)
-      });
-    }, 20000);
+ const reminderInterval = setInterval(() => {
+  console.log("🔔 Checking medicine reminder...");
+
+  new Notification("💊 Medicine Reminder", {
+    body: "Time to take your medicine!",
+    icon: "/favicon.ico"
+  });
+}, 10000);
 
     // Initial check on mount
     checkAndTriggerScheduledReminders({
