@@ -1,7 +1,12 @@
 import axios from 'axios';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL ||
+  (typeof window !== 'undefined' && /localhost|127\.0\.0\.1/.test(window.location.origin)
+    ? 'http://localhost:3000/api'
+    : '/api');
+
 const API = axios.create({
-  baseURL: 'https://smart-hosptial-portal-m3tr.vercel.app/api',
+  baseURL: API_BASE_URL,
 });
 
 API.interceptors.request.use((config) => {

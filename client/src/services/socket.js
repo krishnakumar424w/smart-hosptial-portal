@@ -2,16 +2,45 @@ import { io } from 'socket.io-client';
 
 let socket = null;
 
+export const resolveSocketUrl = ({
+  envSocketUrl = import.meta.env.VITE_SOCKET_URL || '',
+  currentOrigin = typeof window !== 'undefined' ? window.location.origin : ''
+} = {}) => {
+  const normalizedEnvSocketUrl = envSocketUrl ? envSocketUrl.replace(/\/$/, '') : '';
+
+  if (normalizedEnvSocketUrl) {
+    return normalizedEnvSocketUrl;
+  }
+
+  if (!currentOrigin) {
+    return null;
+  }
+
+  const isLocalhost = /localhost|127\.0\.0\.1/.test(currentOrigin);
+  const isVercelHost = /vercel\.app$/i.test(currentOrigin);
+
+  if (isLocalhost) {
+    return currentOrigin;
+  }
+
+  if (isVercelHost) {
+    return null;
+  }
+
+  return currentOrigin;
+};
+
 /**
  * Get or initialize the singleton Socket.IO connection
  */
 export const getSocket = () => {
   if (!socket) {
-    const envSocketUrl = import.meta.env.VITE_SOCKET_URL;
-    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
-    const isLegacyVercelHost = currentOrigin.includes('smart-hosptial-portal.vercel.app');
+    const socketUrl = resolveSocketUrl();
 
-    const socketUrl = envSocketUrl || (isLegacyVercelHost ? 'https://smart-hosptial-portal-m3tr.vercel.app' : currentOrigin || 'https://smart-hosptial-portal-m3tr.vercel.app');
+    if (!socketUrl) {
+      console.warn('[Socket] No backend Socket.IO URL configured. Real-time updates are disabled.');
+      return null;
+    }
 
     socket = io(socketUrl, {
       transports: ['polling', 'websocket'],
@@ -41,6 +70,10 @@ export const getSocket = () => {
  */
 export const initSocket = (user) => {
   const s = getSocket();
+
+  if (!s) {
+    return null;
+  }
 
   if (s.connected && user) {
     registerUserRooms(s, user);
@@ -82,6 +115,10 @@ export const subscribeToAppointments = ({
   onPrescriptionCreated
 }) => {
   const s = getSocket();
+
+  if (!s) {
+    return () => {};
+  }
 
   const handleCreated = (data) => {
     if (onCreated && typeof onCreated === 'function') {
