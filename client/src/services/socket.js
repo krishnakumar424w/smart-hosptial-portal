@@ -44,19 +44,13 @@ export const resolveSocketUrl = ({
   }
 
   const isLocalhost = /localhost|127\.0\.0\.1/.test(currentOrigin);
-  const isVercelHost = /vercel\.app$/i.test(currentOrigin);
 
   if (isLocalhost) {
     return currentOrigin;
   }
 
-  // Vercel serverless frontend cannot host Socket.io connections directly.
-  // Return null or fallback to external backend URL.
-  if (isVercelHost) {
-    return normalizedApiUrl || null;
-  }
-
-  return currentOrigin;
+  // Fall back to API URL or current origin if no explicit socket URL is provided
+  return normalizedApiUrl || currentOrigin;
 };
 
 /**
@@ -72,7 +66,7 @@ export const getSocket = () => {
     }
 
     socket = io(socketUrl, {
-      // Prioritize polling over websocket for serverless & proxy compatibility
+      // Prioritize polling over websocket for Vercel & serverless proxy compatibility
       transports: ['polling', 'websocket'],
       reconnection: true,
       reconnectionAttempts: 10,
