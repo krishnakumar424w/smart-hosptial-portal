@@ -1,15 +1,57 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ||
-  (typeof window !== 'undefined' && /localhost|127\.0\.0\.1/.test(window.location.origin)
-    ? 'http://localhost:3000/api'
-    : '/api');
+const getClientEnv = () => {
+  if (typeof import.meta !== 'undefined' && import.meta && import.meta.env) {
+    return import.meta.env;
+  }
+  return {};
+};
+
+const resolveApiBaseUrl = () => {
+  const env = getClientEnv();
+  const envApiUrl = String(env.VITE_API_URL || '').trim();
+  const envSocketUrl = String(env.VITE_SOCKET_URL || '').trim();
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+
+  if (envApiUrl) {
+    return envApiUrl.replace(/\/$/, '');
+  }
+
+  if (envSocketUrl) {
+    return `${envSocketUrl.replace(/\/$/, '')}/api`;
+  }
+
+  if (!currentOrigin) {
+    return 'http://localhost:3000/api';
+  }
+
+  const isLocalhost = /localhost|127\.0\.0\.1/.test(currentOrigin);
+  if (isLocalhost) {
+    return 'http://localhost:3000/api';
+  }
+
+  const isVercelHost = /vercel\.app$/i.test(currentOrigin);
+  if (isVercelHost) {
+    console.warn('[API] Missing VITE_API_URL. Frontend host detected; requests are blocked until the backend URL is configured.');
+    return null;
+  }
+
+  return `${currentOrigin.replace(/\/$/, '')}/api`;
+};
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 const API = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: API_BASE_URL || '',
 });
 
 API.interceptors.request.use((config) => {
+  if (!API_BASE_URL) {
+    const error = new Error('Backend API URL is not configured. Set VITE_API_URL to your deployed backend URL.');
+    error.config = config;
+    return Promise.reject(error);
+  }
+
   const token = localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
