@@ -1,15 +1,42 @@
 import { io } from 'socket.io-client';
 
+const getViteEnv = () => {
+  if (typeof import.meta !== 'undefined' && import.meta && import.meta.env) {
+    return import.meta.env;
+  }
+  return {};
+};
+
 let socket = null;
 
+const getSocketOrigin = (value) => {
+  const raw = String(value || '').trim();
+
+  if (!raw) {
+    return '';
+  }
+
+  try {
+    const parsed = new URL(raw);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return raw.replace(/\/$/, '').replace(/\/api(?:\/.*)?$/i, '');
+  }
+};
+
 export const resolveSocketUrl = ({
-  envSocketUrl = import.meta.env.VITE_SOCKET_URL || '',
+  envSocketUrl = getViteEnv().VITE_SOCKET_URL || '',
+  envApiUrl = getViteEnv().VITE_API_URL || '',
   currentOrigin = typeof window !== 'undefined' ? window.location.origin : ''
 } = {}) => {
-  const normalizedEnvSocketUrl = envSocketUrl ? envSocketUrl.replace(/\/$/, '') : '';
-
+  const normalizedEnvSocketUrl = getSocketOrigin(envSocketUrl);
   if (normalizedEnvSocketUrl) {
     return normalizedEnvSocketUrl;
+  }
+
+  const normalizedApiUrl = getSocketOrigin(envApiUrl);
+  if (normalizedApiUrl) {
+    return normalizedApiUrl;
   }
 
   if (!currentOrigin) {
@@ -43,7 +70,7 @@ export const getSocket = () => {
     }
 
     socket = io(socketUrl, {
-      transports: ['polling', 'websocket'],
+      transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,

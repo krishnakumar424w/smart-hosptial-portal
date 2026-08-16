@@ -1,9 +1,27 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ||
-  (typeof window !== 'undefined' && /localhost|127\.0\.0\.1/.test(window.location.origin)
-    ? 'http://localhost:3000/api'
-    : '/api');
+const normalizeApiBaseUrl = (value) => {
+  const raw = String(value || '').trim();
+
+  if (!raw) {
+    return '/api';
+  }
+
+  if (raw.startsWith('/')) {
+    return raw.replace(/\/$/, '');
+  }
+
+  try {
+    const parsed = new URL(raw);
+    const pathname = parsed.pathname.replace(/\/+$/, '');
+    const normalizedPath = pathname.endsWith('/api') ? pathname : `${pathname}/api`;
+    return `${parsed.origin}${normalizedPath}`;
+  } catch {
+    return raw.endsWith('/api') ? raw.replace(/\/$/, '') : `${raw.replace(/\/$/, '')}/api`;
+  }
+};
+
+const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_URL || '');
 
 const API = axios.create({
   baseURL: API_BASE_URL,
