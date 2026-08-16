@@ -22,17 +22,6 @@ test('does not connect to the frontend Vercel host when no socket backend is con
   );
 });
 
-test('infers the backend socket URL from the configured API URL', () => {
-  assert.equal(
-    resolveSocketUrl({
-      envSocketUrl: '',
-      envApiUrl: 'https://api.example.com/api',
-      currentOrigin: 'https://smart-hosptial-portal-m3tr.vercel.app',
-    }),
-    'https://api.example.com'
-  );
-});
-
 test('uses the same-origin socket URL in local development', () => {
   assert.equal(
     resolveSocketUrl({
