@@ -50,8 +50,10 @@ export const resolveSocketUrl = ({
     return currentOrigin;
   }
 
+  // Vercel serverless frontend cannot host Socket.io connections directly.
+  // Return null or fallback to external backend URL.
   if (isVercelHost) {
-    return null;
+    return normalizedApiUrl || null;
   }
 
   return currentOrigin;
@@ -70,7 +72,8 @@ export const getSocket = () => {
     }
 
     socket = io(socketUrl, {
-      transports: ['websocket', 'polling'],
+      // Prioritize polling over websocket for serverless & proxy compatibility
+      transports: ['polling', 'websocket'],
       reconnection: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,
