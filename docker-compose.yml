@@ -1,0 +1,40 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: smart-hospital-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: smart-hospital-backend
+    depends_on:
+      - mongo
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      MONGO_URI: mongodb://mongo:27017/smart-hospital
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: smart-hospital-frontend
+    depends_on:
+      - backend
+    environment:
+      VITE_API_URL: http://backend:3000
+    ports:
+      - "5173:5173"
+    restart: unless-stopped
+
+volumes:
+  mongo_data:

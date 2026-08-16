@@ -1,0 +1,8 @@
+{
+  "name": "Smart Hospital Management Portal",
+  "description": "Smart Hospital Management Portal with real-time patient care, doctor prescription sheets with smart auto-suggest, live medicine inventory tracking, appointment scheduling, and automated billing workflows with UPI payments.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
