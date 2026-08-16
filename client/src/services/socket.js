@@ -2,14 +2,44 @@ import { io } from 'socket.io-client';
 
 let socket = null;
 
+const normalizeBackendOrigin = (value, fallbackOrigin = '') => {
+  if (!value) return '';
+
+  const trimmed = String(value).trim();
+  if (!trimmed) return '';
+
+  if (trimmed.startsWith('/')) {
+    return fallbackOrigin ? fallbackOrigin.replace(/\/$/, '') : '';
+  }
+
+  try {
+    const parsed = new URL(trimmed, fallbackOrigin || 'http://localhost');
+    return parsed.origin;
+  } catch {
+    return trimmed.replace(/\/$/, '').replace(/\/api(?:\/.*)?$/i, '');
+  }
+};
+
+const getViteEnv = () => {
+  if (typeof import.meta !== 'undefined' && import.meta && import.meta.env) {
+    return import.meta.env;
+  }
+  return {};
+};
+
 export const resolveSocketUrl = ({
-  envSocketUrl = import.meta.env.VITE_SOCKET_URL || '',
+  envSocketUrl = getViteEnv().VITE_SOCKET_URL || '',
+  envApiUrl = getViteEnv().VITE_API_URL || '',
   currentOrigin = typeof window !== 'undefined' ? window.location.origin : ''
 } = {}) => {
-  const normalizedEnvSocketUrl = envSocketUrl ? envSocketUrl.replace(/\/$/, '') : '';
-
+  const normalizedEnvSocketUrl = normalizeBackendOrigin(envSocketUrl, currentOrigin);
   if (normalizedEnvSocketUrl) {
     return normalizedEnvSocketUrl;
+  }
+
+  const normalizedApiUrl = normalizeBackendOrigin(envApiUrl, currentOrigin);
+  if (normalizedApiUrl) {
+    return normalizedApiUrl;
   }
 
   if (!currentOrigin) {
