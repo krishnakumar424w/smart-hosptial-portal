@@ -14,7 +14,8 @@ import {
   isNotificationSupported,
   getNotificationPermission,
   getStoredReminderTimes,
-  DEFAULT_REMINDER_TIMES
+  DEFAULT_REMINDER_TIMES,
+  acknowledgeReminderSlot
 } from '../../services/notificationService';
 import {
   Calendar,
@@ -105,21 +106,21 @@ const PatientDashboard = () => {
   useEffect(() => {
     fetchPatientData();
 
-    // Check scheduled medicine reminders against patient's custom times every 20 seconds
- const reminderInterval = setInterval(() => {
-  console.log("🔔 Checking medicine reminder...");
+    const runReminderCheck = () => {
+      checkAndTriggerScheduledReminders({
+        schedule: getCategorizedMedicines(),
+        customTimes: customReminderTimes,
+        onClickCallback: (slot) => handleScheduleFocus(slot),
+        onAcknowledge: (slot) => {
+          acknowledgeReminderSlot(slot);
+        }
+      });
+    };
 
-  new Notification("💊 Medicine Reminder", {
-    body: "Time to take your medicine!",
-    icon: "/favicon.ico"
-  });
-}, 10000);
+    const reminderInterval = setInterval(runReminderCheck, 60 * 1000);
 
     // Initial check on mount
-    checkAndTriggerScheduledReminders({
-      schedule: getCategorizedMedicines(),
-      onClickCallback: (slot) => handleScheduleFocus(slot)
-    });
+    runReminderCheck();
 
     // Initialize Socket.IO connection and join patient room
     const socket = initSocket(user);
@@ -197,7 +198,7 @@ const PatientDashboard = () => {
       unsubscribe();
       clearInterval(reminderInterval);
     };
-  }, [user?._id]);
+  }, [user?._id, customReminderTimes]);
 
   const fetchPatientData = async () => {
     try {

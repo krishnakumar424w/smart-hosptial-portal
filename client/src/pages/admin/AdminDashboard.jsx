@@ -159,7 +159,14 @@ const AdminDashboard = () => {
   };
 
   const handleDeleteUser = async (id, name = 'user') => {
-    const isCurrentUser = user && (String(user._id) === String(id) || user.email?.toLowerCase() === name?.toLowerCase());
+    if (!id) {
+      setError('User ID is missing. Please refresh the admin dashboard and try again.');
+      return;
+    }
+
+    const safeId = String(id);
+    const targetUser = users.find((u) => String(u._id) === safeId);
+    const isCurrentUser = user && (String(user._id) === safeId || user.email?.toLowerCase() === (targetUser?.email || name)?.toLowerCase());
     const confirmMessage = isCurrentUser
       ? `WARNING: You are about to permanently delete your currently active Administrator account (${name}). You will be immediately logged out. Proceed?`
       : `Are you sure you want to permanently delete user account "${name}" from the system? This action cannot be undone.`;
@@ -167,16 +174,17 @@ const AdminDashboard = () => {
     if (window.confirm(confirmMessage)) {
       try {
         setError('');
-        const res = await deleteUser(id);
+        const res = await deleteUser(safeId);
+        const success = res?.status === 200 || res?.status === 204 || res?.data?.success === true;
 
-        if (res.status === 200 || res.data?.success) {
-          // Immediately remove the deleted row upon 200 OK
-          setUsers((prev) => prev.filter((u) => String(u._id) !== String(id)));
+        if (success) {
+          const deletedRole = targetUser?.role;
+          setUsers((prev) => prev.filter((u) => String(u._id) !== safeId));
           setStats((prev) => ({
             ...prev,
             totalUsers: Math.max(0, prev.totalUsers - 1),
-            patients: prev.patients - (users.find(u => String(u._id) === String(id))?.role === 'patient' ? 1 : 0),
-            doctors: prev.doctors - (users.find(u => String(u._id) === String(id))?.role === 'doctor' ? 1 : 0)
+            patients: Math.max(0, prev.patients - (deletedRole === 'patient' ? 1 : 0)),
+            doctors: Math.max(0, prev.doctors - (deletedRole === 'doctor' ? 1 : 0))
           }));
 
           setSuccessMessage(`Account "${name}" permanently deleted from system.`);
@@ -190,11 +198,10 @@ const AdminDashboard = () => {
             return;
           }
 
-          // Live refetch to ensure total synchronization across all collections
-          fetchAdminData();
+          await fetchAdminData();
           setTimeout(() => setSuccessMessage(''), 4000);
         } else {
-          const errMsg = res.data?.message || 'Failed to delete user account.';
+          const errMsg = res?.data?.message || 'Failed to delete user account.';
           setError(errMsg);
           setTimeout(() => setError(''), 5000);
         }
@@ -203,10 +210,10 @@ const AdminDashboard = () => {
         const errMsg = err.response?.data?.message || err.message || 'Failed to delete user';
         setError(`Deletion failed: ${errMsg}`);
         setTimeout(() => setError(''), 5000);
-        fetchAdminData();
+        await fetchAdminData();
       }
     }
-  };
+  }; 
 
   const handleAddMedicineSubmit = async (e) => {
     e.preventDefault();

@@ -7,13 +7,18 @@ let socket = null;
  */
 export const getSocket = () => {
   if (!socket) {
-    const socketUrl = import.meta.env.VITE_SOCKET_URL || window.location.origin;
+    const envSocketUrl = import.meta.env.VITE_SOCKET_URL;
+    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+    const isLegacyVercelHost = currentOrigin.includes('smart-hosptial-portal.vercel.app');
+
+    const socketUrl = envSocketUrl || (isLegacyVercelHost ? 'https://smart-hosptial-portal-m3tr.vercel.app' : currentOrigin || 'https://smart-hosptial-portal-m3tr.vercel.app');
 
     socket = io(socketUrl, {
-      transports: ['websocket', 'polling'],
+      transports: ['polling', 'websocket'],
       reconnection: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,
+      timeout: 20000,
     });
 
     socket.on('connect', () => {

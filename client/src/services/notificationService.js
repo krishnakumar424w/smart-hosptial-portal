@@ -7,10 +7,74 @@
 // Key for tracking dispatched reminder slots for today
 const STORAGE_KEY_SENT = 'smart_hospital_sent_reminders_';
 export const STORAGE_KEY_CUSTOM_TIMES = 'medicine_reminder_times';
+export const STORAGE_KEY_REMINDER_STATE = 'smart_hospital_reminder_state_v1';
+export const REMINDER_REPEAT_INTERVAL_MS = 7 * 60 * 1000;
 export const DEFAULT_REMINDER_TIMES = {
   morning: '08:00',
   afternoon: '13:00',
   night: '20:00'
+};
+
+const normalizeReminderSlotKey = (slot) => {
+  const value = String(slot || '').toLowerCase();
+  if (value.includes('morning')) return 'morning';
+  if (value.includes('afternoon') || value.includes('evening')) return 'afternoon';
+  if (value.includes('night')) return 'night';
+  return value;
+};
+
+const getReminderDateKey = (date = new Date()) => date.toISOString().split('T')[0];
+
+const readReminderState = () => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_REMINDER_STATE);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    console.warn('Unable to read reminder state from localStorage:', e);
+    return {};
+  }
+};
+
+const writeReminderState = (state) => {
+  try {
+    localStorage.setItem(STORAGE_KEY_REMINDER_STATE, JSON.stringify(state));
+  } catch (e) {
+    console.warn('Unable to save reminder state to localStorage:', e);
+  }
+};
+
+export const getReminderStateForToday = () => {
+  const todayKey = getReminderDateKey();
+  const state = readReminderState();
+  return state[todayKey] || {};
+};
+
+export const setReminderSlotState = (slot, updater) => {
+  const key = normalizeReminderSlotKey(slot);
+  const todayKey = getReminderDateKey();
+  const state = readReminderState();
+  const todayState = state[todayKey] || {};
+  const current = todayState[key] || { acknowledged: false, lastSentAt: 0 };
+  const nextValue = typeof updater === 'function' ? updater(current) : { ...current, ...updater };
+  todayState[key] = nextValue;
+  state[todayKey] = todayState;
+  writeReminderState(state);
+  return nextValue;
+};
+
+export const acknowledgeReminderSlot = (slot) => {
+  return setReminderSlotState(slot, (current) => ({
+    ...current,
+    acknowledged: true,
+    acknowledgedAt: Date.now(),
+    lastSentAt: current.lastSentAt || Date.now()
+  }));
+};
+
+export const isReminderSlotAcknowledged = (slot) => {
+  const todayState = getReminderStateForToday();
+  const key = normalizeReminderSlotKey(slot);
+  return !!todayState[key]?.acknowledged;
 };
 
 export const getStoredReminderTimes = () => {
@@ -71,7 +135,9 @@ export const requestNotificationPermission = async () => {
 export const showInAppReminderToast = ({
   title = 'Medicine Reminder',
   body = 'Time to take your medicine.',
-  onClickCallback = null
+  onClickCallback = null,
+  onAcknowledge = null,
+  slot = 'Morning'
 } = {}) => {
   if (typeof document === 'undefined') return null;
 
@@ -100,8 +166,9 @@ export const showInAppReminderToast = ({
       <div style="flex:1;min-width:0;">
         <div style="font-size:13px;font-weight:800;letter-spacing:0.2px;">${title}</div>
         <div style="font-size:12px;line-height:1.5;color:#e2e8f0;margin-top:5px;">${body}</div>
+        <button type="button" data-action="ack" style="margin-top:10px;background:#22c55e;border:none;color:white;border-radius:8px;padding:7px 12px;font-size:11px;font-weight:800;cursor:pointer;">OK</button>
       </div>
-      <button type="button" aria-label="Dismiss reminder toast" style="border:none;background:transparent;color:#cbd5e1;font-size:18px;cursor:pointer;padding:0 2px;">×</button>
+      <button type="button" data-action="dismiss" aria-label="Dismiss reminder toast" style="border:none;background:transparent;color:#cbd5e1;font-size:18px;cursor:pointer;padding:0 2px;">×</button>
     </div>
   `;
 
@@ -112,19 +179,30 @@ export const showInAppReminderToast = ({
   };
 
   wrapper.addEventListener('click', (event) => {
-    if (event.target.closest('button')) {
+    const actionButton = event.target.closest('[data-action="ack"]');
+    const dismissButton = event.target.closest('[data-action="dismiss"]');
+
+    if (actionButton) {
+      dismiss();
+      if (typeof onAcknowledge === 'function') {
+        onAcknowledge(slot);
+      }
+      return;
+    }
+
+    if (dismissButton) {
       dismiss();
       return;
     }
 
     if (typeof onClickCallback === 'function') {
-      onClickCallback();
+      onClickCallback(slot);
     }
     dismiss();
   });
 
   document.body.appendChild(wrapper);
-  setTimeout(dismiss, 7000);
+  setTimeout(dismiss, 15000);
 
   return wrapper;
 };
@@ -170,7 +248,8 @@ export const playReminderChime = () => {
 export const sendMedicineNotification = ({
   timeSlot = 'Morning', // 'Morning', 'Afternoon', 'Night' / 'Evening'
   medicines = [],
-  onClickCallback = null
+  onClickCallback = null,
+  onAcknowledge = null
 }) => {
   if (!isNotificationSupported()) {
     console.warn('Notifications not supported in this browser.');
@@ -182,7 +261,6 @@ export const sendMedicineNotification = ({
     return null;
   }
 
-  // Capitalize time slot
   const formattedSlot = timeSlot.charAt(0).toUpperCase() + timeSlot.slice(1);
   const title = `💊 Hospital Medicine Reminder — ${formattedSlot}`;
 
@@ -196,7 +274,6 @@ export const sendMedicineNotification = ({
     bodyText = `Time to take your scheduled ${formattedSlot.toLowerCase()} prescribed medicine.`;
   }
 
-  // Generate an SVG Medical Cross / Pill icon as data URI for crisp Chrome popup display
   const iconSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="%230284c7"><rect width="100" height="100" rx="24" fill="%230284c7"/><path d="M50 20 L50 80 M20 50 L80 50" stroke="white" stroke-width="16" stroke-linecap="round"/><circle cx="50" cy="50" r="12" fill="%2338bdf8"/></svg>`;
 
   try {
@@ -206,13 +283,11 @@ export const sendMedicineNotification = ({
       badge: iconSvg,
       tag: `med-reminder-${timeSlot.toLowerCase()}-${new Date().toISOString().split('T')[0]}`,
       renotify: true,
-      requireInteraction: true // Keeps notification visible in Chrome until patient clicks/dismisses
+      requireInteraction: true
     });
 
-    // Play subtle audio alert
     playReminderChime();
 
-    // Notification click event handler
     notification.onclick = (event) => {
       event.preventDefault();
       window.focus();
@@ -239,6 +314,8 @@ export const sendMedicineNotification = ({
       showInAppReminderToast({
         title: `💊 ${title}`,
         body: bodyText,
+        slot: formattedSlot,
+        onAcknowledge,
         onClickCallback: () => {
           if (typeof onClickCallback === 'function') {
             onClickCallback(formattedSlot);
@@ -267,73 +344,82 @@ export const sendMedicineNotification = ({
  *  - Morning: 08:00 AM (Hour 8)
  *  - Afternoon: 01:00 PM (Hour 13)
  *  - Night: 08:00 PM (Hour 20)
+ *
+ * Notifications repeat every 7 minutes until the patient marks the reminder as OK
+ * for that slot, and the acknowledgment is stored in localStorage so it survives a page refresh.
  */
 export const checkAndTriggerScheduledReminders = ({
   schedule = { morning: [], evening: [], night: [] },
   customTimes = null,
-  onClickCallback = null
+  onClickCallback = null,
+  onAcknowledge = null
 }) => {
   if (getNotificationPermission() !== 'granted') return;
 
   const activeTimes = customTimes || getStoredReminderTimes();
-
   const now = new Date();
-  const currentHour = now.getHours();
-  const currentMinute = now.getMinutes();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
   const todayDateStr = now.toISOString().split('T')[0];
-  const storageKey = `${STORAGE_KEY_SENT}${todayDateStr}`;
-
-  // Read already sent slots for today
-  let sentSlots = [];
-  try {
-    const stored = localStorage.getItem(storageKey);
-    if (stored) sentSlots = JSON.parse(stored);
-  } catch (e) {
-    sentSlots = [];
-  }
-
-  const [mH, mM] = (activeTimes.morning || DEFAULT_REMINDER_TIMES.morning).split(':').map(Number);
-  const [aH, aM] = (activeTimes.afternoon || DEFAULT_REMINDER_TIMES.afternoon).split(':').map(Number);
-  const [nH, nM] = (activeTimes.night || DEFAULT_REMINDER_TIMES.night).split(':').map(Number);
-
-  // Check Morning
-  if (!sentSlots.includes('morning') && currentHour === mH && Math.abs(currentMinute - mM) < 3) {
-    if (schedule.morning && schedule.morning.length > 0) {
-      sendMedicineNotification({
-        timeSlot: 'Morning',
-        medicines: schedule.morning,
-        onClickCallback
-      });
-      sentSlots.push('morning');
-      localStorage.setItem(storageKey, JSON.stringify(sentSlots));
+  const slotConfigs = [
+    {
+      key: 'morning',
+      display: 'Morning',
+      medicines: Array.isArray(schedule.morning) ? schedule.morning : [],
+      time: activeTimes.morning || DEFAULT_REMINDER_TIMES.morning
+    },
+    {
+      key: 'afternoon',
+      display: 'Afternoon',
+      medicines: Array.isArray(schedule.evening) ? schedule.evening : [],
+      time: activeTimes.afternoon || DEFAULT_REMINDER_TIMES.afternoon
+    },
+    {
+      key: 'night',
+      display: 'Night',
+      medicines: Array.isArray(schedule.night) ? schedule.night : [],
+      time: activeTimes.night || DEFAULT_REMINDER_TIMES.night
     }
-  }
+  ];
 
-  // Check Afternoon / Evening
-  if (!sentSlots.includes('afternoon') && currentHour === aH && Math.abs(currentMinute - aM) < 3) {
-    if (schedule.evening && schedule.evening.length > 0) {
-      sendMedicineNotification({
-        timeSlot: 'Afternoon',
-        medicines: schedule.evening,
-        onClickCallback
-      });
-      sentSlots.push('afternoon');
-      localStorage.setItem(storageKey, JSON.stringify(sentSlots));
-    }
-  }
+  slotConfigs.forEach((slotConfig) => {
+    const state = getReminderStateForToday()[slotConfig.key] || { acknowledged: false, lastSentAt: 0 };
+    if (state.acknowledged) return;
 
-  // Check Night
-  if (!sentSlots.includes('night') && currentHour === nH && Math.abs(currentMinute - nM) < 3) {
-    if (schedule.night && schedule.night.length > 0) {
-      sendMedicineNotification({
-        timeSlot: 'Night',
-        medicines: schedule.night,
-        onClickCallback
-      });
-      sentSlots.push('night');
-      localStorage.setItem(storageKey, JSON.stringify(sentSlots));
-    }
-  }
+    const [hour, minute] = slotConfig.time.split(':').map(Number);
+    const slotMinutes = hour * 60 + minute;
+    const lastSentAt = Number(state.lastSentAt || 0);
+    const dueAtTime = new Date(`${todayDateStr}T${slotConfig.time}:00`).getTime();
+    const nextRepeatAt = lastSentAt > 0 ? lastSentAt + REMINDER_REPEAT_INTERVAL_MS : dueAtTime;
+
+    const shouldSend =
+      slotConfig.medicines.length > 0 &&
+      currentMinutes >= slotMinutes &&
+      (
+        (lastSentAt === 0 && now.getTime() >= dueAtTime && now.getTime() <= dueAtTime + 5 * 60 * 1000) ||
+        (lastSentAt > 0 && now.getTime() >= nextRepeatAt)
+      );
+
+    if (!shouldSend) return;
+
+    const handleAck = (slotName) => {
+      acknowledgeReminderSlot(slotName);
+      if (typeof onAcknowledge === 'function') {
+        onAcknowledge(slotName);
+      }
+    };
+
+    sendMedicineNotification({
+      timeSlot: slotConfig.display,
+      medicines: slotConfig.medicines,
+      onClickCallback,
+      onAcknowledge: handleAck
+    });
+
+    setReminderSlotState(slotConfig.key, {
+      acknowledged: false,
+      lastSentAt: Date.now()
+    });
+  });
 };
 
 export default {
@@ -346,6 +432,12 @@ export default {
   showInAppReminderToast,
   getStoredReminderTimes,
   saveStoredReminderTimes,
+  getReminderStateForToday,
+  setReminderSlotState,
+  acknowledgeReminderSlot,
+  isReminderSlotAcknowledged,
   DEFAULT_REMINDER_TIMES,
-  STORAGE_KEY_CUSTOM_TIMES
+  STORAGE_KEY_CUSTOM_TIMES,
+  STORAGE_KEY_REMINDER_STATE,
+  REMINDER_REPEAT_INTERVAL_MS
 };

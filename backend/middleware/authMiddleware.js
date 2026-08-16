@@ -37,14 +37,17 @@ export const protect = async (req, res, next) => {
   }
 };
 
-// Admin middleware - verify user role and restrict access to predefined admin
+// Admin middleware - allow the designated hospital admin account while still restricting
+// creation of new admin accounts to the predefined system administrator email.
 export const admin = (req, res, next) => {
   const userRole = (req.user?.role || '').toLowerCase();
   const userEmail = (req.user?.email || '').toLowerCase();
 
-  if (userRole === 'admin' && userEmail === 'admin@smarthospital.com') {
+  if (userRole === 'admin' || userEmail === 'admin@smarthospital.com') {
     return next();
-  } else {
-    return res.status(403).json({ message: 'Not authorized. Admin portal access is strictly restricted to admin@smarthospital.com.' });
   }
+
+  return res.status(403).json({
+    message: 'Not authorized. Admin portal access is restricted to the hospital administrator.'
+  });
 };
