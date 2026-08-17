@@ -1,4 +1,5 @@
 import { useState, useEffect, useContext, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import {
   getAllUsers,
@@ -66,7 +67,8 @@ import {
 } from 'lucide-react';
 
 const AdminDashboard = () => {
-  const { user } = useContext(AuthContext);
+  const { user, token } = useContext(AuthContext);
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('analytics'); // 'analytics' | 'inventory' | 'users'
   const [selectedDrillDown, setSelectedDrillDown] = useState('users'); // 'users' | 'patients' | 'doctors' | 'appointments'
   const [drillDownSearch, setDrillDownSearch] = useState('');
@@ -133,6 +135,13 @@ const AdminDashboard = () => {
 
   const fetchAdminData = async () => {
     try {
+      if (!user || !token) {
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
+        navigate('/login');
+        return;
+      }
+
       setLoading(true);
       const [usersRes, appRes] = await Promise.all([
         getAllUsers(),
@@ -160,6 +169,15 @@ const AdminDashboard = () => {
       setError('');
     } catch (err) {
       console.error('Failed to load admin dashboard:', err);
+
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
+        setError('Your session expired. Please sign in again.');
+        setTimeout(() => navigate('/login'), 400);
+        return;
+      }
+
       setError('Failed to fetch system data from server.');
     } finally {
       setLoading(false);
