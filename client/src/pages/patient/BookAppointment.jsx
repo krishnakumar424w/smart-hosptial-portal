@@ -190,6 +190,41 @@ const BookAppointment = () => {
     }
   };
 
+  const getTodayDateString = () => new Date().toISOString().split('T')[0];
+
+  const parseSlotEndDate = (slot, dateStr) => {
+    if (!slot || !dateStr) return null;
+
+    const match = String(slot).match(/(\d{1,2}:\d{2})\s*(AM|PM)\s*-\s*(\d{1,2}:\d{2})\s*(AM|PM)/i);
+    if (!match) return null;
+
+    const [, startTime, startMeridiem, endTime, endMeridiem] = match;
+    const parseTimeToMinutes = (time, meridiem) => {
+      const [hours, minutes] = time.split(':').map(Number);
+      let parsedHours = hours;
+      if (meridiem.toUpperCase() === 'AM' && parsedHours === 12) parsedHours = 0;
+      if (meridiem.toUpperCase() === 'PM' && parsedHours !== 12) parsedHours += 12;
+      return parsedHours * 60 + minutes;
+    };
+
+    const endMinutes = parseTimeToMinutes(endTime, endMeridiem);
+    const date = new Date(dateStr + 'T00:00:00');
+    date.setHours(Math.floor(endMinutes / 60), endMinutes % 60, 0, 0);
+    return date;
+  };
+
+  const isPastSlotForDate = (slot, dateStr) => {
+    if (!slot || !dateStr) return false;
+    const todayString = getTodayDateString();
+    if (dateStr !== todayString) return false;
+
+    const now = new Date();
+    const slotEnd = parseSlotEndDate(slot, dateStr);
+    if (!slotEnd) return false;
+
+    return slotEnd.getTime() <= now.getTime();
+  };
+
   const filteredDoctors = doctors.filter((doc) => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
@@ -209,12 +244,14 @@ const BookAppointment = () => {
     return bookedSlots.some((b) => isSlotMatch(b, slot));
   };
 
-  // Filter slots based on active session and search
+  // Filter slots based on active session, availability, and today's expired slots
   const visibleSlots = useMemo(() => {
     let slots = ALL_10MIN_SLOTS;
     if (activeSession === 'morning') slots = MORNING_SLOTS;
     else if (activeSession === 'afternoon') slots = AFTERNOON_SLOTS;
     else if (activeSession === 'evening') slots = EVENING_SLOTS;
+
+    slots = slots.filter((slot) => !isPastSlotForDate(slot, formData.date));
 
     if (onlyAvailable) {
       slots = slots.filter((s) => !isSlotBooked(s));
@@ -226,19 +263,24 @@ const BookAppointment = () => {
     }
 
     return slots;
-  }, [activeSession, onlyAvailable, slotSearch, bookedSlots]);
+  }, [activeSession, onlyAvailable, slotSearch, bookedSlots, formData.date]);
 
   // Session stats calculations
-  const morningBookedCount = MORNING_SLOTS.filter(isSlotBooked).length;
-  const afternoonBookedCount = AFTERNOON_SLOTS.filter(isSlotBooked).length;
-  const eveningBookedCount = EVENING_SLOTS.filter(isSlotBooked).length;
-  const totalBookedCount = ALL_10MIN_SLOTS.filter(isSlotBooked).length;
-  const totalAvailableCount = ALL_10MIN_SLOTS.length - totalBookedCount;
+  const morningBookedCount = MORNING_SLOTS.filter((slot) => isSlotBooked(slot) || isPastSlotForDate(slot, formData.date)).length;
+  const afternoonBookedCount = AFTERNOON_SLOTS.filter((slot) => isSlotBooked(slot) || isPastSlotForDate(slot, formData.date)).length;
+  const eveningBookedCount = EVENING_SLOTS.filter((slot) => isSlotBooked(slot) || isPastSlotForDate(slot, formData.date)).length;
+  const totalBookedCount = ALL_10MIN_SLOTS.filter((slot) => isSlotBooked(slot) || isPastSlotForDate(slot, formData.date)).length;
+  const totalAvailableCount = ALL_10MIN_SLOTS.filter((slot) => !isSlotBooked(slot) && !isPastSlotForDate(slot, formData.date)).length;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.doctorId) {
       setError('Please select a doctor from the list.');
+      return;
+    }
+
+    if (isPastSlotForDate(formData.timeSlot, formData.date)) {
+      setError(`Slot ${formData.timeSlot} has already passed for today. Please select a future available time.`);
       return;
     }
 
@@ -666,13 +708,15 @@ const BookAppointment = () => {
                 ) : (
                   visibleSlots.map((slot) => {
                     const isBooked = isSlotBooked(slot);
-                    const isSelected = isSlotMatch(formData.timeSlot, slot) && !isBooked;
+                    const isExpired = isPastSlotForDate(slot, formData.date);
+                    const isSelected = isSlotMatch(formData.timeSlot, slot) && !isBooked && !isExpired;
+                    const isDisabled = isBooked || isExpired;
 
                     return (
                       <button
                         key={slot}
                         type="button"
-                        disabled={isBooked}
+                        disabled={isDisabled}
                         onClick={() => setFormData({ ...formData, timeSlot: slot })}
                         style={{
                           padding: '10px 8px',
@@ -680,18 +724,18 @@ const BookAppointment = () => {
                           fontSize: '12px',
                           fontWeight: '700',
                           textAlign: 'center',
-                          cursor: isBooked ? 'not-allowed' : 'pointer',
+                          cursor: isDisabled ? 'not-allowed' : 'pointer',
                           border: isSelected
                             ? '2px solid #0284c7'
-                            : isBooked
+                            : isDisabled
                             ? '1px solid #e2e8f0'
                             : '1px solid #cbd5e1',
-                          backgroundColor: isBooked
+                          backgroundColor: isDisabled
                             ? '#f1f5f9'
                             : isSelected
                             ? '#0284c7'
                             : '#ffffff',
-                          color: isBooked
+                          color: isDisabled
                             ? '#94a3b8'
                             : isSelected
                             ? '#ffffff'
@@ -718,6 +762,20 @@ const BookAppointment = () => {
                             fontWeight: '700'
                           }}>
                             <Lock size={10} /> Booked / Unavailable
+                          </span>
+                        ) : isExpired ? (
+                          <span style={{
+                            fontSize: '10px',
+                            color: '#b45309',
+                            backgroundColor: '#fef3c7',
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                            fontWeight: '700'
+                          }}>
+                            <Clock size={10} /> Passed / Unavailable
                           </span>
                         ) : isSelected ? (
                           <span style={{

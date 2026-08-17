@@ -109,6 +109,28 @@ const AdminDashboard = () => {
     fetchInventoryData();
   }, []);
 
+  const getAppointmentFee = (appointment) => {
+    const rawValue = Number(
+      appointment?.doctorFee ??
+      appointment?.consultationFee ??
+      appointment?.fee ??
+      appointment?.doctor?.consultationFee ??
+      appointment?.doctorId?.consultationFee ??
+      appointment?.amount ??
+      150
+    );
+
+    return Number.isFinite(rawValue) && rawValue > 0 ? rawValue : 150;
+  };
+
+  const getPaidRevenue = (items = []) => items
+    .filter((appointment) => {
+      const paymentStatus = String(appointment?.paymentStatus || '').toLowerCase();
+      const status = String(appointment?.status || '').toLowerCase();
+      return paymentStatus === 'paid' || paymentStatus === 'completed' || status === 'paid' || status === 'completed';
+    })
+    .reduce((sum, appointment) => sum + getAppointmentFee(appointment), 0);
+
   const fetchAdminData = async () => {
     try {
       setLoading(true);
@@ -125,16 +147,15 @@ const AdminDashboard = () => {
 
       const patients = usersData.filter((u) => u.role === 'patient').length;
       const doctors = usersData.filter((u) => u.role === 'doctor').length;
-      const revenue = appointmentsData
-        .filter((a) => a.paymentStatus === 'Paid' || a.paymentStatus === 'Completed')
-        .reduce((sum, a) => sum + (a.amount || 150), 0);
+      const revenue = getPaidRevenue(appointmentsData);
 
       setStats({
         totalUsers: usersData.length,
         patients,
         doctors,
         totalAppointments: appointmentsData.length,
-        revenue
+        revenue,
+        hospitalProfit: revenue
       });
       setError('');
     } catch (err) {
@@ -332,10 +353,72 @@ const AdminDashboard = () => {
 
   // Appointment Status Breakdown
   const statusData = [
-    { name: 'Completed', value: appointments.filter(a => a.status === 'Completed').length || 1, color: '#16a34a' },
-    { name: 'Pending', value: appointments.filter(a => a.status === 'Pending').length || 1, color: '#d97706' },
-    { name: 'Confirmed', value: appointments.filter(a => a.status === 'Confirmed').length || 1, color: '#0284c7' }
+    { name: 'Completed', value: appointments.filter((a) => a.status === 'Completed' || a.paymentStatus === 'Completed').length || 0, color: '#16a34a' },
+    { name: 'Pending', value: appointments.filter((a) => a.status === 'Pending' || a.paymentStatus === 'Pending').length || 0, color: '#d97706' },
+    { name: 'Confirmed', value: appointments.filter((a) => a.status === 'Confirmed' || a.paymentStatus === 'Paid').length || 0, color: '#0284c7' }
   ];
+
+  const revenueTrend = useMemo(() => {
+    const toDateKey = (value) => {
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return null;
+      return date.toISOString().split('T')[0];
+    };
+
+    const getWindowData = (dayCount) => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const start = new Date(today);
+      start.setDate(today.getDate() - dayCount + 1);
+
+      const previousStart = new Date(start);
+      previousStart.setDate(start.getDate() - dayCount);
+
+      const currentItems = appointments.filter((appointment) => {
+        const key = toDateKey(appointment?.date || appointment?.createdAt);
+        if (!key) return false;
+        const itemDate = new Date(key + 'T00:00:00');
+        return itemDate >= start && itemDate <= today;
+      });
+
+      const previousItems = appointments.filter((appointment) => {
+        const key = toDateKey(appointment?.date || appointment?.createdAt);
+        if (!key) return false;
+        const itemDate = new Date(key + 'T00:00:00');
+        return itemDate >= previousStart && itemDate < start;
+      });
+
+      const currentValue = currentItems.reduce((sum, appointment) => sum + getAppointmentFee(appointment), 0);
+      const previousValue = previousItems.reduce((sum, appointment) => sum + getAppointmentFee(appointment), 0);
+      const change = previousValue === 0 ? (currentValue === 0 ? 0 : 100) : ((currentValue - previousValue) / previousValue) * 100;
+
+      return {
+        currentValue,
+        previousValue,
+        change,
+        currentCount: currentItems.length,
+        previousCount: previousItems.length
+      };
+    };
+
+    const weekData = getWindowData(7);
+    const monthData = getWindowData(30);
+
+    return {
+      weekly: weekData,
+      monthly: monthData,
+      appointments: {
+        current: weekData.currentCount,
+        previous: weekData.previousCount,
+        change: weekData.previousCount === 0 ? (weekData.currentCount === 0 ? 0 : 100) : ((weekData.currentCount - weekData.previousCount) / weekData.previousCount) * 100,
+      },
+      revenue: {
+        current: weekData.currentValue,
+        previous: weekData.previousValue,
+        change: weekData.previousValue === 0 ? (weekData.currentValue === 0 ? 0 : 100) : ((weekData.currentValue - weekData.previousValue) / weekData.previousValue) * 100,
+      }
+    };
+  }, [appointments]);
 
   // ==========================================
   // DRILL DOWN FILTER LOGIC & DATA PREPARATION
@@ -839,6 +922,55 @@ const AdminDashboard = () => {
                     </span>
                   </div>
                 </button>
+              </div>
+            </div>
+
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+              gap: '14px',
+              marginBottom: '20px'
+            }}>
+              <div style={{
+                background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+                border: '1px solid #bfdbfe',
+                borderRadius: '14px',
+                padding: '18px 20px',
+                color: '#0f172a'
+              }}>
+                <div style={{ fontSize: '11px', fontWeight: '800', letterSpacing: '0.7px', color: '#1d4ed8', textTransform: 'uppercase' }}>Appointments Trend</div>
+                <div style={{ fontSize: '28px', fontWeight: '900', marginTop: '8px' }}>{revenueTrend.appointments.current}</div>
+                <div style={{ marginTop: '6px', fontSize: '12px', color: '#1e3a8a', fontWeight: '700' }}>
+                  {revenueTrend.appointments.change >= 0 ? '+' : ''}{revenueTrend.appointments.change.toFixed(1)}% vs previous 7 days
+                </div>
+              </div>
+
+              <div style={{
+                background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
+                border: '1px solid #bbf7d0',
+                borderRadius: '14px',
+                padding: '18px 20px',
+                color: '#0f172a'
+              }}>
+                <div style={{ fontSize: '11px', fontWeight: '800', letterSpacing: '0.7px', color: '#15803d', textTransform: 'uppercase' }}>Revenue Trend</div>
+                <div style={{ fontSize: '28px', fontWeight: '900', marginTop: '8px' }}>₹{Math.round(revenueTrend.revenue.current).toLocaleString('en-IN')}</div>
+                <div style={{ marginTop: '6px', fontSize: '12px', color: '#166534', fontWeight: '700' }}>
+                  {revenueTrend.revenue.change >= 0 ? '+' : ''}{revenueTrend.revenue.change.toFixed(1)}% vs previous 7 days
+                </div>
+              </div>
+
+              <div style={{
+                background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
+                border: '1px solid #fcd34d',
+                borderRadius: '14px',
+                padding: '18px 20px',
+                color: '#0f172a'
+              }}>
+                <div style={{ fontSize: '11px', fontWeight: '800', letterSpacing: '0.7px', color: '#92400e', textTransform: 'uppercase' }}>Paid Bookings</div>
+                <div style={{ fontSize: '28px', fontWeight: '900', marginTop: '8px' }}>{appointments.filter((a) => a.paymentStatus === 'Paid' || a.status === 'Paid' || a.paymentStatus === 'Completed' || a.status === 'Completed').length}</div>
+                <div style={{ marginTop: '6px', fontSize: '12px', color: '#78350f', fontWeight: '700' }}>
+                  {revenueTrend.monthly.change >= 0 ? '+' : ''}{revenueTrend.monthly.change.toFixed(1)}% monthly revenue shift
+                </div>
               </div>
             </div>
 
@@ -1405,7 +1537,7 @@ const AdminDashboard = () => {
                               </td>
                               <td style={{ padding: '12px 14px' }}>
                                 <span style={{ fontWeight: '800', color: '#0f172a' }}>
-                                  ₹{a.amount || 150}.00
+                                  ₹{getAppointmentFee(a)}.00
                                 </span>
                               </td>
                               <td style={{ padding: '12px 14px' }}>
@@ -1443,6 +1575,36 @@ const AdminDashboard = () => {
                       )}
                     </tbody>
                   </table>
+
+                  <div style={{
+                    marginTop: '18px',
+                    background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+                    borderRadius: '14px',
+                    padding: '18px 20px',
+                    border: '1px solid #334155',
+                    color: '#ffffff',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '12px',
+                    flexWrap: 'wrap'
+                  }}>
+                    <div>
+                      <div style={{ fontSize: '11px', letterSpacing: '0.8px', color: '#cbd5e1', fontWeight: '800', textTransform: 'uppercase' }}>Total Hospital Revenue / Profit</div>
+                      <div style={{ fontSize: '28px', fontWeight: '900', marginTop: '6px' }}>₹{Math.round(stats.revenue || 0).toLocaleString('en-IN')}.00</div>
+                    </div>
+                    <div style={{
+                      backgroundColor: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      borderRadius: '999px',
+                      padding: '8px 12px',
+                      fontSize: '12px',
+                      fontWeight: '700',
+                      color: '#dbeafe'
+                    }}>
+                      {revenueTrend.revenue.change >= 0 ? '+' : ''}{revenueTrend.revenue.change.toFixed(1)}% vs previous period
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

@@ -56,9 +56,29 @@ const UpiPaymentModal = ({ isOpen, onClose, appointment, invoice, onPaymentSucce
     ? (invoice.doctor?.specialization || invoice.doctorId?.specialization || 'Medical Specialist')
     : (appointment.doctorId?.specialization || appointment.doctor?.specialization || 'General Medicine');
 
+  const resolveDoctorFee = (entry) => {
+    if (!entry) return 150;
+
+    const candidate =
+      entry.doctorFee ??
+      entry.consultationFee ??
+      entry.fee ??
+      entry.doctor?.consultationFee ??
+      entry.doctorId?.consultationFee ??
+      entry.amount ??
+      entry.bill?.totalAmount ??
+      entry.totalAmount ??
+      entry.bill?.consultationFee ??
+      entry.bill?.doctorFee ??
+      150;
+
+    const parsed = Number(candidate);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 150;
+  };
+
   const amount = isInvoice
-    ? (invoice.bill?.totalAmount || invoice.totalAmount || 550)
-    : (appointment.amount || appointment.doctorId?.consultationFee || 150);
+    ? (resolveDoctorFee(invoice) || resolveDoctorFee(invoice.bill) || 150)
+    : resolveDoctorFee(appointment);
 
   const paymentTitle = isInvoice ? `Bill_${itemId}` : `Consultation_${itemId}`;
   const hospitalUpi = 'krishna4u.rn@oksbi';
